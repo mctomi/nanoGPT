@@ -45,52 +45,53 @@ class DecayMixer(nn.Module):
         C = config.n_embd
         H = config.n_head
         assert C % H == 0
+
         self.H = H
         self.D = C // H
         self.eps = eps
         self.clip = gate_logit_clip
 
-        self.to_g = nn.Linear(C, C, bias=config.bias)
-        self.to_u = nn.Linear(C, C, bias=config.bias)
-        self.to_o = nn.Linear(C, C, bias=config.bias)
-        self.proj = nn.Linear(C, C, bias=config.bias)
+        self.d = nn.Linear(C, C, bias=config.bias)
+        self.v = nn.Linear(C, C, bias=config.bias)
+        self.g = nn.Linear(C, C, bias=config.bias)
+        self.c_proj = nn.Linear(C, C, bias=config.bias)
 
     def forward(self, x):
         B, T, C = x.shape
         dtype = x.dtype
 
-        a = self.to_g(x).clamp(-self.clip, self.clip)
-        u = self.to_u(x)
-        o = torch.sigmoid(self.to_o(x))
+        d = self.d(x).clamp(-self.clip, self.clip)
+        v = self.v(x)
+        g = torch.sigmoid(self.g(x))
 
-        a = a.view(B, T, self.H, self.D)
-        u = u.view(B, T, self.H, self.D)
-        o = o.view(B, T, self.H, self.D)
+        d = d.view(B, T, self.H, self.D)
+        v = v.view(B, T, self.H, self.D)
+        g = g.view(B, T, self.H, self.D)
 
-        af = a.float()
-        uf = u.float()
+        df = d.float()
+        vf = v.float()
 
-        log_g = -F.softplus(-af)
-        log_1mg = -F.softplus(af)
+        log_g = -F.softplus(-df)
+        log_1mg = -F.softplus(df)
 
         logP = torch.cumsum(log_g, dim=1)
         logw = log_1mg - logP
 
-        up = torch.clamp(uf, min=0.0)
-        un = torch.clamp(-uf, min=0.0)
+        vp = torch.clamp(vf, min=0.0)
+        vn = torch.clamp(-vf, min=0.0)
 
         sum_pos = torch.exp(
-            logP + torch.logcumsumexp(logw + torch.log(up + self.eps), dim=1)
+            logP + torch.logcumsumexp(logw + torch.log(vp + self.eps), dim=1)
         )
         sum_neg = torch.exp(
-            logP + torch.logcumsumexp(logw + torch.log(un + self.eps), dim=1)
+            logP + torch.logcumsumexp(logw + torch.log(vn + self.eps), dim=1)
         )
 
         s = sum_pos - sum_neg
 
-        y = o * s.to(dtype)
+        y = g * s.to(dtype)
         y = y.view(B, T, C)
-        return self.proj(y)
+        return self.c_proj(y)
 
 
 class Block(nn.Module):
