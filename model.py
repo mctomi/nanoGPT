@@ -39,7 +39,7 @@ class LayerNorm(nn.Module):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
 
-class Mixer(nn.Module):
+class DecayMixer(nn.Module):
     def __init__(self, config, eps=1e-12, gate_logit_clip=12.0):
         super().__init__()
         C = config.n_embd
@@ -92,21 +92,6 @@ class Mixer(nn.Module):
         y = y.view(B, T, C)
         return self.proj(y)
 
-class MLP(nn.Module):
-
-    def __init__(self, config):
-        super().__init__()
-        self.c_fc    = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
-        self.gelu    = nn.GELU()
-        self.c_proj  = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
-        self.dropout = nn.Dropout(config.dropout)
-
-    def forward(self, x):
-        x = self.c_fc(x)
-        x = self.gelu(x)
-        x = self.c_proj(x)
-        x = self.dropout(x)
-        return x
 
 class Block(nn.Module):
 
