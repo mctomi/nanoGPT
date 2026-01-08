@@ -38,6 +38,10 @@ class LayerNorm(nn.Module):
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
+def norm(x):
+    # Purely functional rmsnorm with no learnable params
+    return F.rms_norm(x, (x.size(-1),))
+
 
 class DecayMixer(nn.Module):
     def __init__(self, config, eps=1e-12, gate_logit_clip=12.0):
@@ -51,10 +55,10 @@ class DecayMixer(nn.Module):
         self.eps = eps
         self.clip = gate_logit_clip
 
-        self.d = nn.Linear(C, C, bias=config.bias)
-        self.v = nn.Linear(C, C, bias=config.bias)
-        self.g = nn.Linear(C, C, bias=config.bias)
-        self.c_proj = nn.Linear(C, C, bias=config.bias)
+        self.d = nn.Linear(C, C, bias=False)
+        self.v = nn.Linear(C, C, bias=False)
+        self.g = nn.Linear(C, C, bias=False)
+        self.c_proj = nn.Linear(C, C, bias=False)
 
     def forward(self, x):
         B, T, C = x.shape
@@ -63,6 +67,8 @@ class DecayMixer(nn.Module):
         d = self.d(x).clamp(-self.clip, self.clip)
         v = self.v(x)
         g = torch.sigmoid(self.g(x))
+
+        v = norm(v)
 
         d = d.view(B, T, self.H, self.D)
         v = v.view(B, T, self.H, self.D)
@@ -98,11 +104,10 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
         self.attn = DecayMixer(config)
 
     def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+        x = x + self.attn(norm(x))
         return x
 
 @dataclass
